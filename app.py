@@ -3,8 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from sklearn.ensemble import RandomForestRegressor
 
 # --- 1. PAGE SETUP & UI DESIGN ---
 st.set_page_config(page_title="BUHAY ADSS Dashboard", page_icon="🐟", layout="wide")
@@ -20,10 +19,9 @@ st.markdown('<p class="main-title">🐟 BUHAY System Dashboard</p>', unsafe_allo
 st.markdown('<p class="sub-title">Bridging Understanding of Habitat and Aquaculture Yield | BFAR NFFTC</p>', unsafe_allow_html=True)
 st.divider()
 
-# --- 2. AI BACKEND (UPDATED PARA SA GITHUB) ---
+# --- 2. AI BACKEND (RANDOM FOREST - WEB LITE VERSION) ---
 @st.cache_resource
 def train_buhay_ai():
-    # Binago ko ito para basahin direkta kung saan nakasave ang file, hindi na sa Google Drive
     file_path = 'BUHAY_Cleaned_Ready.csv' 
     
     if not os.path.exists(file_path):
@@ -35,30 +33,26 @@ def train_buhay_ai():
     scaled_data = scaler.fit_transform(df[['temp', 'weather_condition', 'do']])
     
     look_back = 3
-    X_lstm, y_lstm = [], []
+    X_rf, y_rf = [], []
     for i in range(len(scaled_data) - look_back):
-        X_lstm.append(scaled_data[i:(i + look_back), :])
-        y_lstm.append(scaled_data[i + look_back, 2])
+        # Flattening 3 days of data for Random Forest
+        X_rf.append(scaled_data[i:(i + look_back), :].flatten())
+        y_rf.append(scaled_data[i + look_back, 2])
         
-    X_lstm, y_lstm = np.array(X_lstm), np.array(y_lstm)
+    X_rf, y_rf = np.array(X_rf), np.array(y_rf)
     
-    model = Sequential()
-    model.add(LSTM(50, return_sequences=True, input_shape=(look_back, 3)))
-    model.add(Dropout(0.2))
-    model.add(LSTM(50, return_sequences=False))
-    model.add(Dropout(0.2))
-    model.add(Dense(1))
-    model.compile(optimizer='adam', loss='mean_squared_error')
+    # Using Random Forest instead of LSTM for web stability
+    model = RandomForestRegressor(n_estimators=50, random_state=42)
     
-    with st.spinner('Sinisimulan ang BUHAY AI Engine...'):
-        model.fit(X_lstm, y_lstm, epochs=30, batch_size=16, verbose=0)
+    with st.spinner('Sinisimulan ang BUHAY Random Forest Engine...'):
+        model.fit(X_rf, y_rf)
         
     return model, scaler, scaled_data, df
 
 model, scaler, scaled_data, df = train_buhay_ai()
 
 if df is None:
-    st.error("❌ HINDI MAHANAP ANG DATASET. Siguraduhing magkasama ang app.py at BUHAY_Cleaned_Ready.csv sa iisang folder/repository.")
+    st.error("❌ HINDI MAHANAP ANG DATASET. Siguraduhing magkasama ang app.py at BUHAY_Cleaned_Ready.csv sa GitHub.")
     st.stop()
 
 # --- 3. PRESCRIPTIVE LOGIC ---
@@ -83,15 +77,14 @@ with tab1:
         st.info("💡 **Weather Legend:**\n1=Rainy/Stormy, 2=Cloudy to Rainy, 3=Cloudy to Sunny, 4=Sunny")
         
     with col2:
-        st.write("🤖 **LSTM Predictive Analytics**")
+        st.write("🤖 **Random Forest Predictive Analytics**")
         st.write("Tinatasa ng AI ang nakaraang 3 araw upang hulaan ang DO level bukas.")
         if st.button("▶ GENERATE OFFICIAL FORECAST", type="primary", use_container_width=True):
-            last_3_days_scaled = scaled_data[-3:]
-            live_input = np.reshape(last_3_days_scaled, (1, 3, 3))
-            predicted_scaled_do = model.predict(live_input, verbose=0)
+            last_3_days_scaled = scaled_data[-3:].flatten().reshape(1, -1)
+            predicted_scaled_do = model.predict(last_3_days_scaled)[0]
             
             dummy = np.zeros((1, 3))
-            dummy[0, 2] = predicted_scaled_do[0, 0]
+            dummy[0, 2] = predicted_scaled_do
             real_do_prediction = scaler.inverse_transform(dummy)[0, 2]
             
             st.divider()
@@ -118,13 +111,11 @@ with tab2:
         sim_array = np.array([[sim_temp, sim_weather, sim_do]])
         sim_scaled = scaler.transform(sim_array)
         
-        live_sim_input = np.vstack((last_2_days, sim_scaled))
-        live_sim_input = np.reshape(live_sim_input, (1, 3, 3))
-        
-        sim_predicted_scaled_do = model.predict(live_sim_input, verbose=0)
+        live_sim_input = np.vstack((last_2_days, sim_scaled)).flatten().reshape(1, -1)
+        sim_predicted_scaled_do = model.predict(live_sim_input)[0]
         
         dummy_sim = np.zeros((1, 3))
-        dummy_sim[0, 2] = sim_predicted_scaled_do[0, 0]
+        dummy_sim[0, 2] = sim_predicted_scaled_do
         sim_real_do_prediction = scaler.inverse_transform(dummy_sim)[0, 2]
         
         if sim_real_do_prediction < 0:
